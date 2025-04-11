@@ -86,4 +86,5 @@ p_pnts
 ![](ChannelGeometry_files/figure-commonmark/unnamed-chunk-3-1.png)
 
 Hmm, this shows channel depth decreasing with increasing contributing
-area.
+area. Perhaps they weren’t measuring bank-full depth, but including
+channel incision in their measurements.

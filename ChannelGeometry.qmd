@@ -64,4 +64,4 @@ p_pnts <- ggplot(depth_reach, aes(x=area,y=depth)) +
 p_pnts
 ```
 
-Hmm, this shows channel depth decreasing with increasing contributing area. Perhaps they weren't measuring bank-full depth, but including channel incision in their measurements. 
+Hmm, this shows channel depth decreasing with increasing contributing area. Perhaps they weren't measuring bank-full depth, but including channel incision in their measurements.  

@@ -11,7 +11,7 @@ library(stats)
 library(ggplot2)
 library(patchwork)
 
-datafile <- "c:/work/sandbox/repos/Sprague/Sprague_Reach_Habitat_updated.csv"
+datafile <- "/Users/alexahaucke/Documents/GitHub/ChannelGeometry/Sprague_Reach_Habitat_updated.csv"
 data <- as.data.table(read.csv(datafile))
 reach_width <- data[ACW>0, .(AREA_SQKM, SPRAG14RCH, ACW)]
 widths <- reach_width[, .(width = mean(ACW, na.rm = TRUE)), by = SPRAG14RCH]
@@ -53,7 +53,7 @@ m_width
      residual sum-of-squares: 107.6
 
     Number of iterations to convergence: 5 
-    Achieved convergence tolerance: 2.963e-06
+    Achieved convergence tolerance: 2.98e-06
 
 ``` r
 # Plot the data and the fitted line
@@ -88,3 +88,53 @@ p_pnts
 Hmm, this shows channel depth decreasing with increasing contributing
 area. Perhaps they weren’t measuring bank-full depth, but including
 channel incision in their measurements.
+
+The survey manual suggests that they used bankfull measurements, but
+there may have been errors in data collection.
+
+Let’s compare these results to other survey data.
+
+``` r
+# Stack the widths
+width_long <- melt(data, 
+                   id.vars = c("SPRAG14RCH", "AREA_SQKM"),
+                   measure.vars = c("ACW", "AC_WIDTH", "MaskWidth"),
+                   variable.name = "width_type",
+                   value.name = "width")
+width_long <- width_long[width > 0]
+
+# Then average by reach
+width_reach <- width_long[, .(width = mean(width, na.rm = TRUE),
+                              area = mean(AREA_SQKM, na.rm = TRUE)), by = SPRAG14RCH]
+```
+
+Rerun the model
+
+``` r
+# (Optionally) remove outliers
+width_reach <- width_reach[width < 17]
+
+# Fit power model again
+m_width <- nls(width ~ a * area^b,
+               data = width_reach,
+               start = list(a = 4.4, b = 0.0354))
+summary(m_width)
+```
+
+
+    Formula: width ~ a * area^b
+
+    Parameters:
+      Estimate Std. Error t value Pr(>|t|)    
+    a  4.04443    0.60259   6.712 4.74e-08 ***
+    b  0.08209    0.04701   1.746   0.0884 .  
+    ---
+    Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+
+    Residual standard error: 1.684 on 40 degrees of freedom
+
+    Number of iterations to convergence: 6 
+    Achieved convergence tolerance: 2.482e-06
+
+Castro et al. (2001) created regression models based on contributing
+areas, as well as width and heights.

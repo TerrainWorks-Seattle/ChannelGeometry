@@ -112,18 +112,28 @@ synthetic_widths <- synthetic_width(areas$area)
 Castro et al. (2001) created regression models based on contributing areas, as well as width and heights. To compare our model to their model, let's run their model with our contributing area data.
 
 ```{r}
+# Use equations for western interior basin and ranges, base on figure 4 in Castro & Jackson
+
+# C&J report discharge in cubic feet per second and drainage area in square miles.
+# Their Table 4: Q = 13.05*(DA^0.77). We want cubic meters per second 
+# as a function of square kilometers. There are 0.0283168 cubic meters per cubic foot.
+# There are 0.386102 square miles per square kilometer.
 castro_flow <- function(DA) {
-  castro_flows = 0.3048*13.05*((DA*10.7639)^0.67)
+  castro_flows = 0.0283168*13.05*((0.386102*DA)^0.77)
   return(castro_flows)
 }  
 
+# C&J Table 4: w = 3.27*(DA^0.51), with width (w) in feet and 
+# drainage area (DA) in square miles. There are 0.3048 meters per foot.
+# To get width in meters: w(m) = (m/ft)*3.27*((sq miles/sq km)*DA(sq km))^0.51
 castro_width <- function(DA) {
-  castro_widths = 0.3048*12.39*((10.7639*DA)^0.43)
+  castro_widths = 0.3048*3.27*((0.386102*DA)^0.51)
   return(castro_widths)
 }  
 
+#C&J Table 4: d = 0.79*(DA^0.24). d in feet, convert to meters
 castro_depth <- function(DA) {
-  castro_depths = 0.3048*0.79*((10.7639*DA)^0.24)
+  castro_depths = 0.3048*0.79*((0.386102*DA)^0.24)
   return(castro_depths)
 }  
 

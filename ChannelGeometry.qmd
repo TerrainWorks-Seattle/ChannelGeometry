@@ -80,7 +80,7 @@ width_long <- melt(data,
 width_long <- width_long[width > 0]
 
 # Then average by reach
-width_reach <- width_long[, .(width = mean(width, na.rm = TRUE),
+width_long <- width_long[, .(width = mean(width, na.rm = TRUE),
                               area = mean(AREA_SQKM, na.rm = TRUE)), by = SPRAG14RCH]
 
 ```
@@ -89,11 +89,11 @@ Rerun the model
 
 ```{r}
 # (Optionally) remove outliers
-width_reach <- width_reach[width < 17]
+width_long <- width_long[width < 17]
 
 # Fit power model again
 m_width <- nls(width ~ a * area^b,
-               data = width_reach,
+               data = width_long,
                start = list(a = 4.4, b = 0.0354))
 summary(m_width)
 ```
@@ -151,4 +151,47 @@ hist(synthetic_widths)
 
 hist(width_long$width)
 ```
-Based on these charts, we can see that the castro widths are mostly above 20 m, which doesn't really make sense based on the surveyed widths. There is a chance that I messed up the unit conversions with Castro, but nothing immediately springs to mind.
+Based on these charts, we can see that the Castro widths are mostly above 20 m, which doesn't really make sense based on the surveyed widths. There is a chance that I messed up the unit conversions with Castro, but nothing immediately springs to mind.
+
+Next, let's see if the different surveys give different model results. First, the reach survey:
+```{r}
+# Fit power model again
+m_width_reach <- nls(width ~ a * area^b,
+               data = width_reach,
+               start = list(a = 4.4, b = 0.0354))
+summary(m_width_reach)
+```
+
+
+
+```{r}
+hab_width <- data[AC_WIDTH>0, .(AREA_SQKM, SPRAG14RCH, AC_WIDTH)]
+hab_width <- hab_width[, .(width = mean(AC_WIDTH, na.rm = TRUE)), by = SPRAG14RCH]
+width_habitat <- merge(widths, areas, by = "SPRAG14RCH")
+# (Optionally) remove outliers
+width_habitat <- width_habitat[width < 17]
+
+# Fit power model again
+m_width_habitat <- nls(width ~ a * area^b,
+               data = width_habitat,
+               start = list(a = 4.4, b = 0.0354))
+summary(m_width_habitat)
+```
+
+
+```{r}
+mask_width <- data[MaskWidth>0, .(AREA_SQKM, SPRAG14HAB, MaskWidth)]
+mask_width <- mask_width[, .(width = mean(MaskWidth, na.rm = TRUE)), by = SPRAG14HAB]
+width_mask <- merge(widths, areas, by = "SPRAG14RCH")
+
+# (Optionally) remove outliers
+width_mask <- width_mask[width < 17]
+
+# Fit power model again
+m_width_mask <- nls(width ~ a * area^b,
+               data = width_mask,
+               start = list(a = 4.4, b = 0.0354))
+summary(m_width_mask)
+```
+All of the models give coefficients between 4.2 and 4.6, and the powers are between 0.03 and 0.05. This suggests that our models are roughly consistent with each other. However, the reach model has the lowest coefficient and the highest power. Maybe this could be caused by different survey methods?
+

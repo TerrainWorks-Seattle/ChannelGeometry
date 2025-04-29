@@ -14,9 +14,9 @@ library(patchwork)
 datafile <- "/Users/alexahaucke/Documents/GitHub/ChannelGeometry/Sprague_Reach_Habitat_updated.csv"
 data <- as.data.table(read.csv(datafile))
 reach_width <- data[ACW>0, .(AREA_SQKM, SPRAG14RCH, ACW)]
-widths <- reach_width[, .(width = mean(ACW, na.rm = TRUE)), by = SPRAG14RCH]
-areas <- reach_width[, .(area = mean(AREA_SQKM, na.rm = TRUE)), by = SPRAG14RCH]
-width_reach <- merge(widths, areas, by = "SPRAG14RCH")
+reach_widths <- reach_width[, .(width = mean(ACW, na.rm = TRUE)), by = SPRAG14RCH]
+reach_areas <- reach_width[, .(area = mean(AREA_SQKM, na.rm = TRUE)), by = SPRAG14RCH]
+width_reach <- merge(reach_widths, areas, by = "SPRAG14RCH")
 p_pnts <- ggplot(width_reach, aes(x=area,y=width)) +
   geom_point(shape=21, size=3, color='black', fill='gray') +
   labs(title="ODFW Reach Width vs Contributing Area",
@@ -50,24 +50,9 @@ p_width_reach <- ggplot(width_reach, aes(x=area,y=width)) +
 p_width_reach
 ```
 
-```{r}
-# Take a look at the channel depth values
-reach_depth <- data[ACH>0, .(AREA_SQKM, SPRAG14RCH, ACH)]
-depths <- reach_depth[, .(depth = mean(ACH, na.rm = TRUE)), by = SPRAG14RCH]
-areas <- reach_depth[, .(area = mean(AREA_SQKM, na.rm = TRUE)), by = SPRAG14RCH]
-depth_reach <- merge(depths, areas, by = "SPRAG14RCH")
-p_pnts <- ggplot(depth_reach, aes(x=area,y=depth)) +
-  geom_point(shape=21, size=3, color='black', fill='gray') +
-  labs(title="ODFW Reach Depth vs Contributing Area",
-       x="Contributing Area (sq km)",
-       y="Mean Reach Depth (m)")
-p_pnts
-```
 
-Hmm, this shows channel depth decreasing with increasing contributing area. Perhaps they weren't measuring bank-full depth, but including channel incision in their measurements. 
 
-The survey manual suggests that they used bankfull measurements, but there may have been errors in data collection.
-
+##Width Regressions
 Let's compare these results to other survey data.
 
 ```{r}
@@ -165,9 +150,10 @@ summary(m_width_reach)
 
 
 ```{r}
-hab_width <- data[AC_WIDTH>0, .(AREA_SQKM, SPRAG14RCH, AC_WIDTH)]
-hab_width <- hab_width[, .(width = mean(AC_WIDTH, na.rm = TRUE)), by = SPRAG14RCH]
-width_habitat <- merge(widths, areas, by = "SPRAG14RCH")
+hab_width <- data[AC_WIDTH>0, .(AREA_SQKM, SPRAG14HAB, AC_WIDTH)]
+hab_widths <- hab_width[, .(width = mean(AC_WIDTH, na.rm = TRUE)), by = SPRAG14HAB]
+hab_areas <- hab_width[, .(area = mean(AREA_SQKM, na.rm = TRUE)), by = SPRAG14HAB]
+width_habitat <- merge(hab_widths, hab_areas, by = "SPRAG14HAB")
 # (Optionally) remove outliers
 width_habitat <- width_habitat[width < 17]
 
@@ -180,12 +166,13 @@ summary(m_width_habitat)
 
 
 ```{r}
-mask_width <- data[MaskWidth>0, .(AREA_SQKM, SPRAG14HAB, MaskWidth)]
-mask_width <- mask_width[, .(width = mean(MaskWidth, na.rm = TRUE)), by = SPRAG14HAB]
-width_mask <- merge(widths, areas, by = "SPRAG14RCH")
+mask_widths <- data[MaskWidth>0, .(AREA_SQKM, SPRAG14RCH, MaskWidth)]
+mask_widths <- data[, .(width = mean(MaskWidth, na.rm = TRUE)), by = SPRAG14RCH]
+width_mask <- merge(mask_widths, reach_areas, by = "SPRAG14RCH")
 
 # (Optionally) remove outliers
 width_mask <- width_mask[width < 17]
+width_mask <- width_mask[width > 0]
 
 # Fit power model again
 m_width_mask <- nls(width ~ a * area^b,
@@ -195,3 +182,115 @@ summary(m_width_mask)
 ```
 All of the models give coefficients between 4.2 and 4.6, and the powers are between 0.03 and 0.05. This suggests that our models are roughly consistent with each other. However, the reach model has the lowest coefficient and the highest power. Maybe this could be caused by different survey methods?
 
+We can compare the predictions for these models to the data that they have been trained on.
+```{r}
+# Plot the data and the fitted line
+fit_habitat <- predict(m_width_habitat, newdata=width_habitat)
+fit_reach <- predict(m_width_reach, newdata=width_reach)
+fit_mask <- predict(m_width_mask, newdata=width_mask)
+
+# Add predicted values to the same data frame
+width_reach[, fit := predict(m_width_reach, newdata = width_reach)]
+width_habitat[, fit := predict(m_width_habitat, newdata = width_habitat)]
+width_mask[, fit := predict(m_width_mask, newdata = width_mask)]
+
+p_width_reach <- ggplot() +
+  geom_point(aes(x=width_reach$area, y=width_reach$width),shape=21, size=3, color='black', fill='gray') +
+  geom_line(aes(x=width_reach$area, y=width_reach$fit), linewidth=1.3, color='black') +
+  labs(title="ODFW Reach Width vs Contributing Area",
+       x="Contributing Area (sq km)",
+       y="Mean Reach Width (m)")
+p_width_reach
+  
+p_width_habitat <- ggplot() +
+  geom_point(aes(x=width_habitat$area, y=width_habitat$width),shape=21, size=3, color='red', fill='pink') +
+  geom_line(aes(x=width_habitat$area, y=width_habitat$fit), linewidth=1.3, color='red') +
+  labs(title="ODFW Reach Width vs Contributing Area",
+       x="Contributing Area (sq km)",
+       y="Mean Reach Width (m)")
+p_width_habitat
+  
+p_width_mask <- ggplot() +
+  geom_point(aes(x=width_mask$area, y=width_mask$width),shape=21, size=3, color='blue', fill='lightblue') +
+  geom_line(aes(x=width_mask$area, y=width_mask$fit), linewidth=1.3, color='blue') +
+  labs(title="ODFW Reach Width vs Contributing Area",
+       x="Contributing Area (sq km)",
+       y="Mean Reach Width (m)")
+p_width_mask
+```
+This shows the data and the regressions created based on them. 
+
+
+##Depth Regressions 
+Next, let's try doing the same with depths.
+
+```{r}
+# Take a look at the channel depth values
+reach_depth <- data[ACH>0, .(AREA_SQKM, SPRAG14RCH, ACH)]
+reach_depths <- reach_depth[, .(depth = mean(ACH, na.rm = TRUE)), by = SPRAG14RCH]
+reach_areas <- reach_depth[, .(area = mean(AREA_SQKM, na.rm = TRUE)), by = SPRAG14RCH]
+depth_reach <- merge(reach_depths, reach_areas, by = "SPRAG14RCH")
+p_pnts <- ggplot(depth_reach, aes(x=area,y=depth)) +
+  geom_point(shape=21, size=3, color='black', fill='gray') +
+  labs(title="ODFW Reach Depth vs Contributing Area",
+       x="Contributing Area (sq km)",
+       y="Mean Reach Depth (m)")
+p_pnts
+```
+
+Hmm, this shows channel depth decreasing with increasing contributing area. Perhaps they weren't measuring bank-full depth, but including channel incision in their measurements. 
+
+Let's compare this to the habitat surveys
+```{r}
+# Take a look at the channel depth values
+hab_depth <- data[AC_HEIGHT>0, .(AREA_SQKM, SPRAG14HAB, AC_HEIGHT)]
+hab_depths <- hab_depth[, .(depth = mean(AC_HEIGHT, na.rm = TRUE)), by = SPRAG14HAB]
+hab_areas <- hab_depth[, .(area = mean(AREA_SQKM, na.rm = TRUE)), by = SPRAG14HAB]
+depth_hab <- merge(hab_depths, hab_areas, by = "SPRAG14HAB")
+p_pnts2 <- ggplot(depth_hab, aes(x=area,y=depth)) +
+  geom_point(shape=21, size=3, color='black', fill='gray') +
+  labs(title="ODFW Reach Depth vs Contributing Area",
+       x="Contributing Area (sq km)",
+       y="Mean Reach Depth (m)")
+p_pnts2
+```
+
+The results look pretty similar for the habitat and reach surveys.
+
+```{r}
+# Fit power model for both
+m_depth_reach <- nls(depth ~ a * area^b,
+               data = depth_reach,
+               start = list(a = 4.4, b = 0.0354))
+summary(m_depth_reach)
+
+m_depth_hab <- nls(depth ~ a * area^b,
+               data = depth_hab,
+               start = list(a = 4.4, b = 0.0354))
+summary(m_depth_hab)
+
+
+# Add predicted values to the same data frame
+depth_reach[, fit := predict(m_depth_reach, newdata = depth_reach)]
+depth_hab[, fit := predict(m_depth_hab, newdata = depth_hab)]
+
+p_depth_reach <- ggplot() +
+  geom_point(aes(x=width_reach$area, y=width_reach$width),shape=21, size=3, color='black', fill='gray') +
+  geom_line(aes(x=width_reach$area, y=width_reach$fit), linewidth=1.3, color='black') +
+  labs(title="ODFW Reach Width vs Contributing Area",
+       x="Contributing Area (sq km)",
+       y="Mean Reach Width (m)")
+p_depth_reach
+  
+p_depth_habitat <- ggplot() +
+  geom_point(aes(x=width_habitat$area, y=width_habitat$width),shape=21, size=3, color='red', fill='pink') +
+  geom_line(aes(x=width_habitat$area, y=width_habitat$fit), linewidth=1.3, color='red') +
+  labs(title="ODFW Reach Width vs Contributing Area",
+       x="Contributing Area (sq km)",
+       y="Mean Reach Width (m)")
+p_depth_habitat
+
+
+
+```
+The models generally show similar results.

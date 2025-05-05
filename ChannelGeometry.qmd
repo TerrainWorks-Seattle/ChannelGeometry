@@ -1,22 +1,85 @@
 ---
 title: "ChannelGeometry"
 format: gfm
+warning: false
 ---
 
 This document provides a quick look at some of the results reported in Lex's Sprague_Reach_Habitat_updated.csv file. Let's start with the ODFW reach data.
 
-```{r}
+```{r, echo=FALSE, results='hide'}
 library(data.table)
 library(stats)
 library(ggplot2)
 library(patchwork)
+library(tidyverse)
+library(httr)
+library(tmap)
+library(tmaptools)
+library(purrr)
+library(dplyr); # wrangling data/plotting
+library(readr);
+library(viridis); # nice color palette
+library(sf); # newer "simple features" spatial package
+library(USAboundaries); # state/county data
+#library(Imap); # nice mapping/color functions col.map
+library(ggrepel) # for labeling
+library(urbnmapr)
+```
 
+Before we start modeling, let's take a look at the study area. Our goal is to create a model of channel depth in width in the Sprague River, located in southern Oregon. It is mapped below:
+
+```{r, echo=FALSE, results='hide'}
+##plotting river shapefile
+sprague <- st_read("/Users/alexahaucke/Documents/Klamath River Project/Sprague_reaches_Nov_2024/reach_WIPincise.shp")
+st_crs(sprague) <- 26910
+
+##plotting state geography
+# Pick a State
+state_names <- c("OR")
+
+# warning is ok
+OR <- get_urbn_map(map = "states", sf = TRUE) %>% filter(state_abbv==state_names)
+st_crs(OR)
+
+
+# Pick some OR counties
+co_names <- c("Lake County", "Klamath County")
+
+# get counties
+counties_spec <- get_urbn_map(map = "counties", sf=TRUE) %>% 
+  filter(state_abbv==state_names, county_name %in% co_names)
+
+
+# add centroid for each county using purrr::map_dbl
+counties_spec <- counties_spec %>% 
+  mutate(lon = map_dbl(geometry, ~st_centroid(.x)[[1]]),
+         lat = map_dbl(geometry, ~st_centroid(.x)[[2]]))
+
+ggplot() +
+  geom_sf(data = OR) + 
+  geom_sf(data = counties_spec) +
+  geom_sf(data = sprague, col = 'blue') +
+  xlab("Longitude") +
+  ylab("Latitude") +
+  ggtitle("Sprague River", subtitle = "Lake and Klamath Counties, Oregon, USA")
+```
+This river is a tributary of the Williamson River, which accounts for most of the inflow to Upper Klamath Lake. Let's take a closer look at the channel network.
+
+```{r}
+ggplot() +
+  geom_sf(data = sprague, col = 'blue')
+
+```
+As shown on the plot, this river has an intricate stream network. Most of the Sprague's channels are considered small (<5 m in width), making them hard to obtain accurate geometry measurements. Additionally, the number of channels makes the river difficult to comprehensively survey. 
+
+The Oregon Department of Fish and Wildlife has conducted two surveys of the Sprague. The reach survey focused on documenting channel geometry for river reaches, and the habitat survey focused on documenting channel geometry for different habitat units. Our goal is to use these measurements to improve existing channel geometry models and tailor them to the Sprague. Let's examine the reach survey data.
+```{r}
 datafile <- "/Users/alexahaucke/Documents/GitHub/ChannelGeometry/Sprague_Reach_Habitat_updated.csv"
 data <- as.data.table(read.csv(datafile))
 reach_width <- data[ACW>0, .(AREA_SQKM, SPRAG14RCH, ACW)]
 reach_widths <- reach_width[, .(width = mean(ACW, na.rm = TRUE)), by = SPRAG14RCH]
 reach_areas <- reach_width[, .(area = mean(AREA_SQKM, na.rm = TRUE)), by = SPRAG14RCH]
-width_reach <- merge(reach_widths, areas, by = "SPRAG14RCH")
+width_reach <- merge(reach_widths, reach_areas, by = "SPRAG14RCH")
 p_pnts <- ggplot(width_reach, aes(x=area,y=width)) +
   geom_point(shape=21, size=3, color='black', fill='gray') +
   labs(title="ODFW Reach Width vs Contributing Area",
@@ -24,8 +87,8 @@ p_pnts <- ggplot(width_reach, aes(x=area,y=width)) +
        y="Mean Reach Width (m)")
 p_box <- ggplot(width_reach, aes(y=width)) +
   geom_boxplot(outlier.color="black", outlier.shape=8, outlier.size=3) +
-  labs(title="ODFW Reach Width") +
-  theme(axis.title.y = element_blank())
+  labs(title="ODFW Reach Width", ) +
+  theme(axis.title.y = element_blank(), plot.title = element_text(hjust = 0.5))
 p_pnts + p_box
 ```
 The 17-m wide reach appears to be an outlier compared to the other values. 
@@ -52,7 +115,7 @@ p_width_reach
 
 
 
-##Width Regressions
+## Width Regressions
 Let's compare these results to other survey data.
 
 ```{r}
@@ -75,6 +138,7 @@ Rerun the model
 ```{r}
 # (Optionally) remove outliers
 width_long <- width_long[width < 17]
+areas <- width_long$area
 
 # Fit power model again
 m_width <- nls(width ~ a * area^b,
@@ -83,7 +147,6 @@ m_width <- nls(width ~ a * area^b,
 summary(m_width)
 ```
 
-
 ```{r}
 ##Create width model
 synthetic_width <- function(DA) {
@@ -91,52 +154,10 @@ synthetic_width <- function(DA) {
   return(synthetic_widths)
 }
 
-synthetic_widths <- synthetic_width(areas$area)
-
-```
-Castro et al. (2001) created regression models based on contributing areas, as well as width and heights. To compare our model to their model, let's run their model with our contributing area data.
-
-```{r}
-# Use equations for western interior basin and ranges, base on figure 4 in Castro & Jackson
-
-# C&J report discharge in cubic feet per second and drainage area in square miles.
-# Their Table 4: Q = 13.05*(DA^0.77). We want cubic meters per second 
-# as a function of square kilometers. There are 0.0283168 cubic meters per cubic foot.
-# There are 0.386102 square miles per square kilometer.
-castro_flow <- function(DA) {
-  castro_flows = 0.0283168*13.05*((0.386102*DA)^0.77)
-  return(castro_flows)
-}  
-
-# C&J Table 4: w = 3.27*(DA^0.51), with width (w) in feet and 
-# drainage area (DA) in square miles. There are 0.3048 meters per foot.
-# To get width in meters: w(m) = (m/ft)*3.27*((sq miles/sq km)*DA(sq km))^0.51
-castro_width <- function(DA) {
-  castro_widths = 0.3048*3.27*((0.386102*DA)^0.51)
-  return(castro_widths)
-}  
-
-#C&J Table 4: d = 0.79*(DA^0.24). d in feet, convert to meters
-castro_depth <- function(DA) {
-  castro_depths = 0.3048*0.79*((0.386102*DA)^0.24)
-  return(castro_depths)
-}  
-
-castro_widths <- castro_width(areas$area)
-castro_depths <- castro_depth(areas$area)
+synthetic_widths <- synthetic_width(areas)
 
 ```
 
-To determine the differences between our values and those generated by this model, let's just take a look at the value distributions.
-
-```{r}
-hist(castro_widths)
-
-hist(synthetic_widths)
-
-hist(width_long$width)
-```
-Based on these charts, we can see that the Castro widths are mostly above 20 m, which doesn't really make sense based on the surveyed widths. There is a chance that I messed up the unit conversions with Castro, but nothing immediately springs to mind.
 
 Next, let's see if the different surveys give different model results. First, the reach survey:
 ```{r}
@@ -205,7 +226,7 @@ p_width_reach
 p_width_habitat <- ggplot() +
   geom_point(aes(x=width_habitat$area, y=width_habitat$width),shape=21, size=3, color='red', fill='pink') +
   geom_line(aes(x=width_habitat$area, y=width_habitat$fit), linewidth=1.3, color='red') +
-  labs(title="ODFW Reach Width vs Contributing Area",
+  labs(title="ODFW Habitat Width vs Contributing Area",
        x="Contributing Area (sq km)",
        y="Mean Reach Width (m)")
 p_width_habitat
@@ -213,15 +234,15 @@ p_width_habitat
 p_width_mask <- ggplot() +
   geom_point(aes(x=width_mask$area, y=width_mask$width),shape=21, size=3, color='blue', fill='lightblue') +
   geom_line(aes(x=width_mask$area, y=width_mask$fit), linewidth=1.3, color='blue') +
-  labs(title="ODFW Reach Width vs Contributing Area",
+  labs(title="Estimated Water Mask Width vs Contributing Area",
        x="Contributing Area (sq km)",
        y="Mean Reach Width (m)")
 p_width_mask
 ```
-This shows the data and the regressions created based on them. 
+This shows the data and the regressions created based on them. There are very few measurements for the water mask widths, and they vary greatly. The reach and habitat surveys both appear to have an average around 5 m. Both of these models are very flat, suggesting that contributing area may not have a major impact on reach width in this river. However, the contributing areas are generally below 25 m^2 in this area, and the channel width measurements we have for larger contributing areas vary greatly.
 
 
-##Depth Regressions 
+## Depth Regressions 
 Next, let's try doing the same with depths.
 
 ```{r}
@@ -240,7 +261,7 @@ p_pnts
 
 Hmm, this shows channel depth decreasing with increasing contributing area. Perhaps they weren't measuring bank-full depth, but including channel incision in their measurements. 
 
-Let's compare this to the habitat surveys
+Let's compare this to the habitat surveys:
 ```{r}
 # Take a look at the channel depth values
 hab_depth <- data[AC_HEIGHT>0, .(AREA_SQKM, SPRAG14HAB, AC_HEIGHT)]
@@ -277,20 +298,103 @@ depth_hab[, fit := predict(m_depth_hab, newdata = depth_hab)]
 p_depth_reach <- ggplot() +
   geom_point(aes(x=width_reach$area, y=width_reach$width),shape=21, size=3, color='black', fill='gray') +
   geom_line(aes(x=width_reach$area, y=width_reach$fit), linewidth=1.3, color='black') +
-  labs(title="ODFW Reach Width vs Contributing Area",
+  labs(title="Reach Model Depth vs Contributing Area",
        x="Contributing Area (sq km)",
-       y="Mean Reach Width (m)")
+       y="Mean Reach Depth (m)")
 p_depth_reach
   
 p_depth_habitat <- ggplot() +
   geom_point(aes(x=width_habitat$area, y=width_habitat$width),shape=21, size=3, color='red', fill='pink') +
   geom_line(aes(x=width_habitat$area, y=width_habitat$fit), linewidth=1.3, color='red') +
-  labs(title="ODFW Reach Width vs Contributing Area",
+  labs(title="Habitat Model Depth vs Contributing Area",
        x="Contributing Area (sq km)",
-       y="Mean Reach Width (m)")
+       y="Mean Reach Depth (m)")
 p_depth_habitat
+```
+The models generally show similar results. To look at their accuracy, let's compare them to another model.
 
+## Models from Castro and Jackson
 
+Castro and Jackson (2001) created regression models based on contributing areas, as well as width and heights. To compare our model to their model, let's run their model with our contributing area data.
+
+```{r}
+# Use equations for western interior basin and ranges, base on figure 4 in Castro & Jackson
+
+# C&J report discharge in cubic feet per second and drainage area in square miles.
+# Their Table 4: Q = 13.05*(DA^0.77). We want cubic meters per second 
+# as a function of square kilometers. There are 0.0283168 cubic meters per cubic foot.
+# There are 0.386102 square miles per square kilometer.
+castro_flow <- function(DA) {
+  castro_flows = 0.0283168*13.05*((0.386102*DA)^0.77)
+  return(castro_flows)
+}  
+
+# C&J Table 4: w = 3.27*(DA^0.51), with width (w) in feet and 
+# drainage area (DA) in square miles. There are 0.3048 meters per foot.
+# To get width in meters: w(m) = (m/ft)*3.27*((sq miles/sq km)*DA(sq km))^0.51
+castro_width <- function(DA) {
+  castro_widths = 0.3048*3.27*((0.386102*DA)^0.51)
+  return(castro_widths)
+}  
+
+#C&J Table 4: d = 0.79*(DA^0.24). d in feet, convert to meters
+castro_depth <- function(DA) {
+  castro_depths = 0.3048*0.79*((0.386102*DA)^0.24)
+  return(castro_depths)
+}  
+
+castro_widths <- castro_width(areas)
+castro_depths <- castro_depth(areas)
 
 ```
-The models generally show similar results.
+
+To determine the differences between our values and those generated by this model, let's just take a look at the value distributions.
+
+```{r}
+hist(castro_widths, xlim = c(0,10))
+
+hist(synthetic_widths, xlim = c(0,10), breaks = 2)
+
+hist(width_long$width, xlim = c(0,10))
+```
+The results for our synthetic model are clustered between 3 and 6 m, while the Castro and Jackson model is spread between 0 and 7, with most of the values clustered between 1 and 3. The survey data are more evenly distributed, with the widths falling between 2 and 10. It appears that both models are failing to capture some factor that impacts channel width.
+
+## Data Sources
+The models created in this notebook were created based on surveys by the Oregon Department of Fish and Wildlife, which can be found [here](https://odfw-aqi.forestry.oregonstate.edu/habitat-and-reach-data-0), with selected data located in our GitHub repository. 
+
+*Bankfull Discharge Reccurrence Intervals and Regional Hydraulic Geometry Relationships: Patterns in the Pacific Northwest, USA* by Castro and Jackson (2001) can be found [here](https://doi.org/10.1111/j.1752-1688.2001.tb03636.x).
+
+Packages Used in this Notebook:
+
+* [data.table](https://cran.r-project.org/web/packages/data.table/data.table.pdf)
+
+* [stats](https://stat.ethz.ch/R-manual/R-devel/library/stats/html/00Index.html)
+
+* [ggplot2](https://ggplot2.tidyverse.org)
+
+* [patchwork](https://patchwork.data-imaginist.com)
+
+* [tidyverse](https://www.tidyverse.org)
+
+* [httr](https://cran.r-project.org/web/packages/httr/index.html)
+
+* [tmap](https://cran.r-project.org/web/packages/tmap/index.html)
+
+* [tmaptools](https://cran.r-project.org/web/packages/tmaptools/index.html)
+
+* [dplyr](https://dplyr.tidyverse.org)
+
+* [readr](https://cran.r-project.org/web/packages/readr/index.html)
+
+* [viridis](https://cran.r-project.org/web/packages/viridis/vignettes/intro-to-viridis.html)
+
+* [sf](https://cran.r-project.org/web/packages/sf/index.html)
+
+* [USAboundaries](https://github.com/ropensci/USAboundariesg)
+
+* [ggrepel](https://ggrepel.slowkow.com)
+
+* [urbnmapr](https://urbaninstitute.github.io/urbnmapr/)
+
+```
+

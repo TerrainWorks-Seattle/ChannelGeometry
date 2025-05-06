@@ -16,8 +16,13 @@ most of the inflow to Upper Klamath Lake. Let’s take a closer look at
 the channel network.
 
 ``` r
-ggplot() +
-  geom_sf(data = sprague, col = 'blue')
+river_network <- ggplot() +
+  geom_sf(data = sprague, col = 'blue') +
+  geom_sf(data = watermask, col = 'lightblue')
+  #+ geom_sf(data = hab_survey, col = 'red') +
+  #geom_sf(data = reach_survey, col = 'green')
+
+river_network 
 ```
 
 ![](ChannelGeometry_files/figure-commonmark/unnamed-chunk-3-1.png)
@@ -28,11 +33,11 @@ them hard to obtain accurate geometry measurements. Additionally, the
 number of channels makes the river difficult to comprehensively survey.
 
 The Oregon Department of Fish and Wildlife has conducted two surveys of
-the Sprague. The reach survey focused on documenting channel geometry
-for river reaches, and the habitat survey focused on documenting channel
-geometry for different habitat units. Our goal is to use these
-measurements to improve existing channel geometry models and tailor them
-to the Sprague. Let’s examine the reach survey data.
+the Sprague in 2014. The reach survey focused on documenting channel
+geometry for river reaches, and the habitat survey focused on
+documenting channel geometry for different habitat units. Our goal is to
+use these measurements to improve existing channel geometry models and
+tailor them to the Sprague. Let’s examine the reach survey data.
 
 ``` r
 datafile <- "/Users/alexahaucke/Documents/GitHub/ChannelGeometry/Sprague_Reach_Habitat_updated.csv"
@@ -259,36 +264,31 @@ p_width_reach <- ggplot() +
   geom_point(aes(x=width_reach$area, y=width_reach$width),shape=21, size=3, color='black', fill='gray') +
   geom_line(aes(x=width_reach$area, y=width_reach$fit), linewidth=1.3, color='black') +
   labs(title="ODFW Reach Width vs Contributing Area",
-       x="Contributing Area (sq km)",
+       x="log(Contributing Area (sq km))",
        y="Mean Reach Width (m)")
-p_width_reach
-```
-
-![](ChannelGeometry_files/figure-commonmark/unnamed-chunk-12-1.png)
-
-``` r
+  
 p_width_habitat <- ggplot() +
   geom_point(aes(x=width_habitat$area, y=width_habitat$width),shape=21, size=3, color='red', fill='pink') +
   geom_line(aes(x=width_habitat$area, y=width_habitat$fit), linewidth=1.3, color='red') +
+  scale_x_log10() +
   labs(title="ODFW Habitat Width vs Contributing Area",
-       x="Contributing Area (sq km)",
+       x="log(Contributing Area (sq km))",
        y="Mean Reach Width (m)")
-p_width_habitat
-```
-
-![](ChannelGeometry_files/figure-commonmark/unnamed-chunk-12-2.png)
-
-``` r
+  
 p_width_mask <- ggplot() +
   geom_point(aes(x=width_mask$area, y=width_mask$width),shape=21, size=3, color='blue', fill='lightblue') +
   geom_line(aes(x=width_mask$area, y=width_mask$fit), linewidth=1.3, color='blue') +
+  scale_x_log10() +
   labs(title="Estimated Water Mask Width vs Contributing Area",
-       x="Contributing Area (sq km)",
+       x="log(Contributing Area (sq km))",
        y="Mean Reach Width (m)")
-p_width_mask
+
+p_width_reach / p_width_habitat / p_width_mask 
 ```
 
-![](ChannelGeometry_files/figure-commonmark/unnamed-chunk-12-3.png)
+<img
+src="ChannelGeometry_files/figure-commonmark/unnamed-chunk-12-1.png"
+width="1500" height="2000" />
 
 This shows the data and the regressions created based on them. There are
 very few measurements for the water mask widths, and they vary greatly.
@@ -394,27 +394,26 @@ depth_reach[, fit := predict(m_depth_reach, newdata = depth_reach)]
 depth_hab[, fit := predict(m_depth_hab, newdata = depth_hab)]
 
 p_depth_reach <- ggplot() +
-  geom_point(aes(x=width_reach$area, y=width_reach$width),shape=21, size=3, color='black', fill='gray') +
-  geom_line(aes(x=width_reach$area, y=width_reach$fit), linewidth=1.3, color='black') +
+  geom_point(aes(x=depth_reach$area, y=depth_reach$depth),shape=21, size=3, color='black', fill='gray') +
+  geom_line(aes(x=depth_reach$area, y=depth_reach$fit), linewidth=1.3, color='black') +
+  scale_x_log10() +
   labs(title="Reach Model Depth vs Contributing Area",
-       x="Contributing Area (sq km)",
+       x="log(Contributing Area (sq km))",
        y="Mean Reach Depth (m)")
-p_depth_reach
-```
-
-![](ChannelGeometry_files/figure-commonmark/unnamed-chunk-15-1.png)
-
-``` r
+  
 p_depth_habitat <- ggplot() +
-  geom_point(aes(x=width_habitat$area, y=width_habitat$width),shape=21, size=3, color='red', fill='pink') +
-  geom_line(aes(x=width_habitat$area, y=width_habitat$fit), linewidth=1.3, color='red') +
+  geom_point(aes(x=depth_hab$area, y=depth_hab$depth),shape=21, size=3, color='red', fill='pink') +
+  geom_line(aes(x=depth_hab$area, y=depth_hab$fit), linewidth=1.3, color='red') +
+  scale_x_log10() +
   labs(title="Habitat Model Depth vs Contributing Area",
-       x="Contributing Area (sq km)",
+       x="log(Contributing Area (sq km))",
        y="Mean Reach Depth (m)")
-p_depth_habitat
+p_depth_reach / p_depth_habitat
 ```
 
-![](ChannelGeometry_files/figure-commonmark/unnamed-chunk-15-2.png)
+<img
+src="ChannelGeometry_files/figure-commonmark/unnamed-chunk-15-1.png"
+width="1500" height="2000" />
 
 The models generally show similar results. To look at their accuracy,
 let’s compare them to another model.
@@ -459,19 +458,19 @@ To determine the differences between our values and those generated by
 this model, let’s just take a look at the value distributions.
 
 ``` r
-hist(castro_widths, xlim = c(0,10))
+castro_hist <- hist(castro_widths, xlim = c(0,10)) 
 ```
 
 ![](ChannelGeometry_files/figure-commonmark/unnamed-chunk-17-1.png)
 
 ``` r
-hist(synthetic_widths, xlim = c(0,10), breaks = 2)
+synthetic_hist <- hist(synthetic_widths, xlim = c(0,10), breaks = 2) 
 ```
 
 ![](ChannelGeometry_files/figure-commonmark/unnamed-chunk-17-2.png)
 
 ``` r
-hist(width_long$width, xlim = c(0,10))
+data_hist <- hist(width_long$width, xlim = c(0,10))
 ```
 
 ![](ChannelGeometry_files/figure-commonmark/unnamed-chunk-17-3.png)

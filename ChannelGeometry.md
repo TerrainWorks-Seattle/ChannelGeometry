@@ -5,11 +5,52 @@ This document provides a quick look at some of the results reported in
 Lex’s Sprague_Reach_Habitat_updated.csv file. Let’s start with the ODFW
 reach data.
 
+``` r
+  add_nls_confidence <- function(model, newdata, level = 0.95) {
+  # Get model formula and parameters
+  model_formula <- formula(model)
+  params <- coef(model)
+  cov_mat <- vcov(model)
+  
+  # Predict fitted values
+  pred <- predict(model, newdata = newdata)
+  
+  # Get all variable names used in the formula
+  vars <- all.vars(model_formula[[3]])  # right-hand side of formula
+  
+  # Find which variable is the independent one in newdata
+  indep_var <- intersect(names(newdata), vars)
+  if (length(indep_var) != 1) {
+    stop("Unable to determine independent variable from model and newdata.")
+  }
+  
+  x <- newdata[[indep_var]]
+  
+  # Compute gradient matrix assuming power model: y = a * x^b
+  grad_matrix <- cbind(
+    x^params["b"],
+    params["a"] * x^params["b"] * log(x)
+  )
+  
+  # Compute variance and standard error
+  fit_var <- rowSums((grad_matrix %*% cov_mat) * grad_matrix)
+  fit_se <- sqrt(fit_var)
+  
+  # Confidence interval
+  z <- qnorm(1 - (1 - level)/2)
+  newdata$fit <- pred
+  newdata$lower <- pred - z * fit_se
+  newdata$upper <- pred + z * fit_se
+  
+  return(newdata)
+}
+```
+
 Before we start modeling, let’s take a look at the study area. Our goal
 is to create a model of channel depth in width in the Sprague River,
 located in southern Oregon. It is mapped below:
 
-![](ChannelGeometry_files/figure-commonmark/unnamed-chunk-2-1.png)
+![](ChannelGeometry_files/figure-commonmark/unnamed-chunk-3-1.png)
 
 This river is a tributary of the Williamson River, which accounts for
 most of the inflow to Upper Klamath Lake. Let’s take a closer look at
@@ -19,13 +60,13 @@ the channel network.
 river_network <- ggplot() +
   geom_sf(data = sprague, col = 'blue') +
   geom_sf(data = watermask, col = 'lightblue')
-  #+ geom_sf(data = hab_survey, col = 'red') +
-  #geom_sf(data = reach_survey, col = 'green')
+  #+ geom_sf(data = hab_survey, col = 'red')
+  #+ geom_sf(data = reach_survey, col = 'green')
 
 river_network 
 ```
 
-![](ChannelGeometry_files/figure-commonmark/unnamed-chunk-3-1.png)
+![](ChannelGeometry_files/figure-commonmark/unnamed-chunk-4-1.png)
 
 As shown on the plot, this river has an intricate stream network. Most
 of the Sprague’s channels are considered small (\<5 m in width), making
@@ -58,7 +99,7 @@ p_box <- ggplot(width_reach, aes(y=width)) +
 p_pnts + p_box
 ```
 
-![](ChannelGeometry_files/figure-commonmark/unnamed-chunk-4-1.png)
+![](ChannelGeometry_files/figure-commonmark/unnamed-chunk-5-1.png)
 
 The 17-m wide reach appears to be an outlier compared to the other
 values.
@@ -68,35 +109,27 @@ values.
 width_reach <- width_reach[width < 17]
 
 # Fit a power function to the data, starting values from Excel
-m_width <- nls(width ~ a * area^b,
+m_width_reach <- nls(width ~ a * area^b,
                data = width_reach,
                start = list(a = 4.4, b = 0.0354))
-m_width
-```
 
-    Nonlinear regression model
-      model: width ~ a * area^b
-       data: width_reach
-         a      b 
-    4.3220 0.0522 
-     residual sum-of-squares: 107.6
+width_reach <- add_nls_confidence(m_width_reach, width_reach)
 
-    Number of iterations to convergence: 5 
-    Achieved convergence tolerance: 2.98e-06
+# Plot with confidence ribbon
+p_width_reach <- ggplot(width_reach, aes(x = area, y = width)) +
+  geom_point(shape = 21, size = 3, color = 'black', fill = 'gray') +
+  geom_line(aes(y = fit), linewidth = 1.3, color = 'black') +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.5, fill = 'red') +
+  labs(title = "ODFW Reach Width vs Contributing Area",
+       x = "Contributing Area (sq km)",
+       y = "Mean Reach Width (m)") +
+  scale_x_log10()
 
-``` r
-# Plot the data and the fitted line
-fit <- predict(m_width, newdata=width_reach)
-p_width_reach <- ggplot(width_reach, aes(x=area,y=width)) +
-  geom_point(shape=21, size=3, color='black', fill='gray') +
-  geom_line(aes(x=width_reach$area, y=fit), linewidth=1.3, color='black') +
-  labs(title="ODFW Reach Width vs Contributing Area",
-       x="Contributing Area (sq km)",
-       y="Mean Reach Width (m)")
+# Show plot
 p_width_reach
 ```
 
-![](ChannelGeometry_files/figure-commonmark/unnamed-chunk-5-1.png)
+![](ChannelGeometry_files/figure-commonmark/unnamed-chunk-6-1.png)
 
 ## Width Regressions
 
@@ -124,10 +157,10 @@ width_long <- width_long[width < 17]
 areas <- width_long$area
 
 # Fit power model again
-m_width <- nls(width ~ a * area^b,
+m_width_long <- nls(width ~ a * area^b,
                data = width_long,
                start = list(a = 4.4, b = 0.0354))
-summary(m_width)
+summary(m_width_long)
 ```
 
 
@@ -146,6 +179,10 @@ summary(m_width)
     Achieved convergence tolerance: 2.482e-06
 
 ``` r
+width_long <- add_nls_confidence(m_width_long, width_long)
+```
+
+``` r
 ##Create width model
 synthetic_width <- function(DA) {
   synthetic_widths <- 4.044*DA^0.08209
@@ -153,7 +190,23 @@ synthetic_width <- function(DA) {
 }
 
 synthetic_widths <- synthetic_width(areas)
+
+
+# Plot with confidence ribbon
+p_width_long <- ggplot(width_long, aes(x = area, y = width)) +
+  geom_point(shape = 21, size = 3, color = 'black', fill = 'gray') +
+  geom_line(aes(y = fit), linewidth = 1.3, color = 'black') +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.5, fill = 'red') +
+  labs(title = "ODFW Reach Width vs Contributing Area",
+       x = "Contributing Area (sq km)",
+       y = "Mean Reach Width (m)") +
+  scale_x_log10()
+
+# Show plot
+p_width_long
 ```
+
+![](ChannelGeometry_files/figure-commonmark/unnamed-chunk-9-1.png)
 
 Next, let’s see if the different surveys give different model results.
 First, the reach survey:
@@ -180,6 +233,10 @@ summary(m_width_reach)
 
     Number of iterations to convergence: 5 
     Achieved convergence tolerance: 2.98e-06
+
+``` r
+width_reach <- add_nls_confidence(m_width_reach, width_reach)
+```
 
 ``` r
 hab_width <- data[AC_WIDTH>0, .(AREA_SQKM, SPRAG14HAB, AC_WIDTH)]
@@ -212,12 +269,15 @@ summary(m_width_habitat)
     Achieved convergence tolerance: 7.648e-06
 
 ``` r
+width_habitat <- add_nls_confidence(m_width_habitat, width_habitat)
+```
+
+``` r
 mask_widths <- data[MaskWidth>0, .(AREA_SQKM, SPRAG14RCH, MaskWidth)]
 mask_widths <- data[, .(width = mean(MaskWidth, na.rm = TRUE)), by = SPRAG14RCH]
 width_mask <- merge(mask_widths, reach_areas, by = "SPRAG14RCH")
 
 # (Optionally) remove outliers
-width_mask <- width_mask[width < 17]
 width_mask <- width_mask[width > 0]
 
 # Fit power model again
@@ -240,6 +300,10 @@ summary(m_width_mask)
     Number of iterations to convergence: 10 
     Achieved convergence tolerance: 4.776e-06
 
+``` r
+width_mask <- add_nls_confidence(m_width_mask, width_mask)
+```
+
 All of the models give coefficients between 4.2 and 4.6, and the powers
 are between 0.03 and 0.05. This suggests that our models are roughly
 consistent with each other. However, the reach model has the lowest
@@ -260,24 +324,20 @@ width_reach[, fit := predict(m_width_reach, newdata = width_reach)]
 width_habitat[, fit := predict(m_width_habitat, newdata = width_habitat)]
 width_mask[, fit := predict(m_width_mask, newdata = width_mask)]
 
-p_width_reach <- ggplot() +
-  geom_point(aes(x=width_reach$area, y=width_reach$width),shape=21, size=3, color='black', fill='gray') +
-  geom_line(aes(x=width_reach$area, y=width_reach$fit), linewidth=1.3, color='black') +
-  labs(title="ODFW Reach Width vs Contributing Area",
-       x="log(Contributing Area (sq km))",
-       y="Mean Reach Width (m)")
-  
-p_width_habitat <- ggplot() +
-  geom_point(aes(x=width_habitat$area, y=width_habitat$width),shape=21, size=3, color='red', fill='pink') +
-  geom_line(aes(x=width_habitat$area, y=width_habitat$fit), linewidth=1.3, color='red') +
+
+p_width_habitat <- ggplot(width_habitat, aes(x = area)) +
+  geom_point(aes(y=width),shape=21, size=3, color='red', fill='pink') +
+  geom_line(aes(y=fit), linewidth=1.3, color='red') +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.5, fill = 'red') +
   scale_x_log10() +
   labs(title="ODFW Habitat Width vs Contributing Area",
        x="log(Contributing Area (sq km))",
        y="Mean Reach Width (m)")
   
-p_width_mask <- ggplot() +
+p_width_mask <- ggplot(width_mask, aes(x = area)) +
   geom_point(aes(x=width_mask$area, y=width_mask$width),shape=21, size=3, color='blue', fill='lightblue') +
   geom_line(aes(x=width_mask$area, y=width_mask$fit), linewidth=1.3, color='blue') +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.5, fill = 'blue') +
   scale_x_log10() +
   labs(title="Estimated Water Mask Width vs Contributing Area",
        x="log(Contributing Area (sq km))",
@@ -286,9 +346,7 @@ p_width_mask <- ggplot() +
 p_width_reach / p_width_habitat / p_width_mask 
 ```
 
-<img
-src="ChannelGeometry_files/figure-commonmark/unnamed-chunk-12-1.png"
-width="1500" height="2000" />
+![](ChannelGeometry_files/figure-commonmark/unnamed-chunk-13-1.png)
 
 This shows the data and the regressions created based on them. There are
 very few measurements for the water mask widths, and they vary greatly.
@@ -317,7 +375,7 @@ p_pnts <- ggplot(depth_reach, aes(x=area,y=depth)) +
 p_pnts
 ```
 
-![](ChannelGeometry_files/figure-commonmark/unnamed-chunk-13-1.png)
+![](ChannelGeometry_files/figure-commonmark/unnamed-chunk-14-1.png)
 
 Hmm, this shows channel depth decreasing with increasing contributing
 area. Perhaps they weren’t measuring bank-full depth, but including
@@ -339,7 +397,7 @@ p_pnts2 <- ggplot(depth_hab, aes(x=area,y=depth)) +
 p_pnts2
 ```
 
-![](ChannelGeometry_files/figure-commonmark/unnamed-chunk-14-1.png)
+![](ChannelGeometry_files/figure-commonmark/unnamed-chunk-15-1.png)
 
 The results look pretty similar for the habitat and reach surveys.
 
@@ -367,6 +425,8 @@ summary(m_depth_reach)
     Achieved convergence tolerance: 6.123e-06
 
 ``` r
+depth_reach <- add_nls_confidence(m_depth_reach, depth_reach)
+
 m_depth_hab <- nls(depth ~ a * area^b,
                data = depth_hab,
                start = list(a = 4.4, b = 0.0354))
@@ -389,21 +449,21 @@ summary(m_depth_hab)
     Achieved convergence tolerance: 1.104e-06
 
 ``` r
-# Add predicted values to the same data frame
-depth_reach[, fit := predict(m_depth_reach, newdata = depth_reach)]
-depth_hab[, fit := predict(m_depth_hab, newdata = depth_hab)]
+depth_hab <- add_nls_confidence(m_depth_hab, depth_hab)
 
-p_depth_reach <- ggplot() +
-  geom_point(aes(x=depth_reach$area, y=depth_reach$depth),shape=21, size=3, color='black', fill='gray') +
-  geom_line(aes(x=depth_reach$area, y=depth_reach$fit), linewidth=1.3, color='black') +
+p_depth_reach <- ggplot(data = depth_reach, aes(x = area)) +
+  geom_point(aes(y=depth),shape=21, size=3, color='black', fill='gray') +
+  geom_line(aes(y=fit), linewidth=1.3, color='black') +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.5, fill = 'black') +
   scale_x_log10() +
   labs(title="Reach Model Depth vs Contributing Area",
        x="log(Contributing Area (sq km))",
        y="Mean Reach Depth (m)")
   
-p_depth_habitat <- ggplot() +
-  geom_point(aes(x=depth_hab$area, y=depth_hab$depth),shape=21, size=3, color='red', fill='pink') +
-  geom_line(aes(x=depth_hab$area, y=depth_hab$fit), linewidth=1.3, color='red') +
+p_depth_habitat <- ggplot(data = depth_hab, aes(x = area)) +
+  geom_point(aes(y= depth),shape=21, size=3, color='red', fill='pink') +
+  geom_line(aes(y=fit), linewidth=1.3, color='red') +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.5, fill = 'red') +
   scale_x_log10() +
   labs(title="Habitat Model Depth vs Contributing Area",
        x="log(Contributing Area (sq km))",
@@ -411,9 +471,7 @@ p_depth_habitat <- ggplot() +
 p_depth_reach / p_depth_habitat
 ```
 
-<img
-src="ChannelGeometry_files/figure-commonmark/unnamed-chunk-15-1.png"
-width="1500" height="2000" />
+![](ChannelGeometry_files/figure-commonmark/unnamed-chunk-16-1.png)
 
 The models generally show similar results. To look at their accuracy,
 let’s compare them to another model.
@@ -461,19 +519,19 @@ this model, let’s just take a look at the value distributions.
 castro_hist <- hist(castro_widths, xlim = c(0,10)) 
 ```
 
-![](ChannelGeometry_files/figure-commonmark/unnamed-chunk-17-1.png)
+![](ChannelGeometry_files/figure-commonmark/unnamed-chunk-18-1.png)
 
 ``` r
 synthetic_hist <- hist(synthetic_widths, xlim = c(0,10), breaks = 2) 
 ```
 
-![](ChannelGeometry_files/figure-commonmark/unnamed-chunk-17-2.png)
+![](ChannelGeometry_files/figure-commonmark/unnamed-chunk-18-2.png)
 
 ``` r
 data_hist <- hist(width_long$width, xlim = c(0,10))
 ```
 
-![](ChannelGeometry_files/figure-commonmark/unnamed-chunk-17-3.png)
+![](ChannelGeometry_files/figure-commonmark/unnamed-chunk-18-3.png)
 
 The results for our synthetic model are clustered between 3 and 6 m,
 while the Castro and Jackson model is spread between 0 and 7, with most
@@ -481,6 +539,39 @@ of the values clustered between 1 and 3. The survey data are more evenly
 distributed, with the widths falling between 2 and 10. It appears that
 both models are failing to capture some factor that impacts channel
 width.
+
+## Models from Bieger et al. (2013)
+
+Bieger et al. built on Castro and Jackson’s models, developing regional
+regressions for the continental United States.
+
+``` r
+Bieger_Width <- function(DA){ #DA in meters^2
+  bieger_widths = 2.76*DA^(0.399)
+  return(bieger_widths)}
+
+Bieger_Depth <- function(DA){
+  bieger_depths = 0.23*DA^(0.294)
+  return(bieger_widths)}
+
+Bieger_Area <- function(DA){
+  bieger_areas = 0.87*DA^(0.652)
+  return(bieger_areas)}
+
+bieger_widths <- Bieger_Width(areas)
+bieger_depths <- Bieger_Depth(areas)
+
+bieger_hist_width <- hist(bieger_widths, breaks = 5)
+```
+
+![](ChannelGeometry_files/figure-commonmark/unnamed-chunk-19-1.png)
+
+As shown in the histogram, the majority of the widths in this model fall
+between 5 and 10. However, most of the remaining widths generated by
+this model are above 10, which is the highest width found in our channel
+data. The surveys have captured almost all of the larger channels in the
+area, and our goal is to represent the smaller channel network. This
+suggests that the model may not be a good fit for our project.
 
 ## Data Sources
 
